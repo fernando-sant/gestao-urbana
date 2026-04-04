@@ -12,31 +12,29 @@ export default async function MapaPage() {
     .order('created_at', { ascending: false })
     .limit(200)
 
-  // Tratamento do dado binário/JSON para coordenadas legíveis
-  const mapReports = (reports || []).map((r: any) => {
+    const mapReports = (reports || []).map((r: any) => {
     let lat = 0;
     let lng = 0;
 
-    // Se o PostGIS/Supabase retornar como objeto GeoJSON
-    if (r.location?.coordinates) {
-      lng = r.location.coordinates[0];
-      lat = r.location.coordinates[1];
+    // O Supabase costuma converter a coluna 'geography' em um objeto GeoJSON automaticamente
+    // Se r.location for um objeto com a propriedade 'coordinates':
+    if (r.location && typeof r.location === 'object' && r.location.coordinates) {
+        // IMPORTANTE: No GeoJSON, a ordem é [longitude, latitude]
+        lng = r.location.coordinates[0];
+        lat = r.location.coordinates[1];
     } 
-    // Caso o dado venha como a String Hexadecimal que você enviou, 
-    // o Supabase geralmente tenta converter para objeto. 
-    // Se lat continuar 0, use r.location.lat se disponível.
-
+    
     return {
-      id: r.id,
-      protocol: r.protocol,
-      lat,
-      lng,
-      category_name: r.categories?.name ?? 'Geral',
-      category_icon: r.categories?.icon ?? '📍',
-      address_hint: r.address_hint ?? '',
-      status: r.status,
+        id: r.id,
+        protocol: r.protocol,
+        lat,
+        lng,
+        category_name: r.categories?.name ?? 'Geral',
+        category_icon: r.categories?.icon ?? '📍',
+        address_hint: r.address_hint ?? '',
+        status: r.status,
     };
-  }).filter(r => r.lat !== 0 && r.lat !== null);
+    }).filter(r => r.lat !== 0); // Remove itens que não puderam ser convertidos
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">

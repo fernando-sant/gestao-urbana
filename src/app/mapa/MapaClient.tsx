@@ -78,7 +78,7 @@ export default function MapaClient({ reports }: { reports: Report[] }) {
       </div>
 
       <MapContainer 
-        center={[-22.885, -48.445]} // Coordenada padrão (Ex: Centro de Botucatu)
+        center={[-22.6126, -46.7012]} // Coordenada padrão (Ex: Centro de Botucatu)
         zoom={14} 
         style={{ height: '100%', width: '100%' }}
         scrollWheelZoom={true}
