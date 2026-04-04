@@ -119,7 +119,30 @@ export default function RegistrarPage() {
     if (idx === 0) router.push('/')
     else setStep(STEP_ORDER[idx - 1])
   }
+async function handleCategorySelect(cat: Category) {
+  setCategory(cat)
+  setSubcategory(null) // Reseta sub anterior
+  setError(null)
+  setLoading(true) // Opcional: para mostrar um feedback de carregamento
 
+  try {
+    // Busca no banco as subcategorias desta categoria
+    const subs = await getSubcategories(cat.id)
+    
+    if (subs && subs.length > 0) {
+      setSubcategories(subs) // Guarda as subs no estado
+      setStep('subcategoria') // Muda para a tela de escolha específica
+    } else {
+      setSubcategories([])
+      setStep('localizacao') // Se não tiver sub, vai direto pro mapa
+    }
+  } catch (err) {
+    console.error("Erro ao carregar subcategorias:", err)
+    setStep('localizacao') // Fallback: se der erro, não trava o usuário
+  } finally {
+    setLoading(false)
+  }
+}
   const handleConfirmLocation = async () => {
     setLoading(true)
     try {
@@ -168,12 +191,15 @@ export default function RegistrarPage() {
       {step === 'categoria' && (
         <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-2 gap-3">
           {categories.map(cat => (
-            <button key={cat.id} onClick={() => { setCategory(cat); getSubcategories(cat.id).then(subs => subs?.length ? setStep('subcategoria') : setStep('localizacao')) }}
-              className="p-6 border-2 border-slate-50 rounded-3xl flex flex-col items-center gap-3 active:scale-95 transition-transform hover:bg-blue-50">
-              <span className="text-4xl">{cat.icon}</span>
-              <span className="text-sm font-bold text-slate-800">{cat.name}</span>
-            </button>
-          ))}
+  <button 
+    key={cat.id}
+    onClick={() => handleCategorySelect(cat)} // <--- CHAME A FUNÇÃO AQUI
+    className="p-6 border-2 border-slate-50 rounded-3xl flex flex-col items-center gap-3 active:scale-95 transition-transform hover:bg-blue-50"
+  >
+    <span className="text-4xl">{cat.icon}</span>
+    <span className="text-sm font-bold text-slate-800">{cat.name}</span>
+  </button>
+))}
         </div>
       )}
 
