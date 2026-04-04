@@ -9,7 +9,7 @@ import {
 
 const MapaLoader = dynamic(() => import('../mapa/MapaLoader'), { ssr: false })
 
-export default function AdminDashboard() {
+export default async function AdminDashboard() {
   const supabase = createClient()
 const { data: { user } } = await supabase.auth.getUser()
 
