@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase'
 import Link from 'next/link'
-import MapaLoader from './MapaLoader' // Importamos o novo Loader
+import MapaLoader from './MapaLoader'
 
 export default async function MapaPage() {
   const supabase = createClient()
@@ -12,31 +12,42 @@ export default async function MapaPage() {
     .order('created_at', { ascending: false })
     .limit(200)
 
-  const mapReports = (reports || []).map((r: any) => ({
-    id: r.id,
-    protocol: r.protocol,
-    lat: r.location?.coordinates?.[1] ?? 0,
-    lng: r.location?.coordinates?.[0] ?? 0,
-    category_name: r.categories?.name ?? '',
-    category_icon: r.categories?.icon ?? '📋',
-    address_hint: r.address_hint ?? '',
-    status: r.status,
-  })).filter(r => r.lat !== 0)
+  // Tratamento do dado binário/JSON para coordenadas legíveis
+  const mapReports = (reports || []).map((r: any) => {
+    let lat = 0;
+    let lng = 0;
+
+    // Se o PostGIS/Supabase retornar como objeto GeoJSON
+    if (r.location?.coordinates) {
+      lng = r.location.coordinates[0];
+      lat = r.location.coordinates[1];
+    } 
+    // Caso o dado venha como a String Hexadecimal que você enviou, 
+    // o Supabase geralmente tenta converter para objeto. 
+    // Se lat continuar 0, use r.location.lat se disponível.
+
+    return {
+      id: r.id,
+      protocol: r.protocol,
+      lat,
+      lng,
+      category_name: r.categories?.name ?? 'Geral',
+      category_icon: r.categories?.icon ?? '📍',
+      address_hint: r.address_hint ?? '',
+      status: r.status,
+    };
+  }).filter(r => r.lat !== 0 && r.lat !== null);
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">
       <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm z-10">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Mapa de Ocorrências</h1>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Serra Negra - SP</p>
-        </div>
+        <h1 className="text-xl font-bold text-slate-900">Mapa de Ocorrências</h1>
         <Link href="/" className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-colors">
           ← Voltar
         </Link>
       </div>
 
       <div className="flex-1 relative">
-        {/* Usamos o Loader aqui */}
         <MapaLoader reports={mapReports} />
       </div>
     </main>
