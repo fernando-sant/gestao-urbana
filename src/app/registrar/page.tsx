@@ -1,4 +1,3 @@
-// src/app/registrar/page.tsx
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -19,7 +18,7 @@ export default function RegistrarPage() {
   const [subcategories, setSubcategories] = useState<Category[]>([])
   const [category, setCategory]       = useState<Category | null>(null)
   const [subcategory, setSubcategory] = useState<Category | null>(null)
-  const [location, setLocation]       = useState<{ lat: number; lng: number; address: string } | null>(null)
+  const [location, setLocation]       = useState<{ lat: number; lng: number; address: string; city: string } | null>(null)
   const [addressInput, setAddressInput] = useState('')
   const [description, setDescription] = useState('')
   const [photoUrl, setPhotoUrl]       = useState<string | null>(null)
@@ -31,6 +30,19 @@ export default function RegistrarPage() {
   useEffect(() => {
     getCategories().then(setCategories).catch(() => setError('Erro ao carregar categorias'))
   }, [])
+
+  // Função para descobrir cidade e endereço via coordenadas (Gratuito)
+  async function reverseGeocode(lat: number, lng: number) {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+      const data = await res.json()
+      const city = data.address.city || data.address.town || data.address.village || 'Cidade não identificada'
+      const road = data.address.road || 'Endereço aproximado'
+      return { city, fullAddress: data.display_name || `${road}, ${city}` }
+    } catch {
+      return { city: 'Não identificada', fullAddress: 'Localização via GPS' }
+    }
+  }
 
   async function handleCategorySelect(cat: Category) {
     setCategory(cat)
@@ -63,11 +75,15 @@ export default function RegistrarPage() {
     setGpsLoading(true)
     setError(null)
     navigator.geolocation.getCurrentPosition(
-      pos => {
+      async pos => {
+        const { latitude, longitude } = pos.coords
+        const geo = await reverseGeocode(latitude, longitude)
+        
         setLocation({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          address: 'Localização atual (GPS)',
+          lat: latitude,
+          lng: longitude,
+          address: geo.fullAddress,
+          city: geo.city
         })
         setGpsLoading(false)
         setStep('detalhes')
@@ -76,13 +92,13 @@ export default function RegistrarPage() {
         setError('Não foi possível obter o GPS. Digite o endereço manualmente.')
         setGpsLoading(false)
       },
-      { timeout: 10000 }
+      { timeout: 10000, enableHighAccuracy: true }
     )
   }
 
   function handleAddressConfirm() {
     if (!addressInput.trim()) return
-    setLocation({ lat: 0, lng: 0, address: addressInput.trim() })
+    setLocation({ lat: 0, lng: 0, address: addressInput.trim(), city: '' })
     setStep('detalhes')
   }
 
@@ -124,12 +140,15 @@ export default function RegistrarPage() {
     setLoading(true)
     setError(null)
     try {
+      // Se o endereço foi manual, a cidade pode estar vazia
+      const finalCity = location.city || 'Botucatu' 
+
       const report = await createReport({
         category_id: subcategory?.id ?? category.id,
         lat: location.lat,
         lng: location.lng,
         address_hint: location.address,
-        city: 'Botucatu',
+        city: finalCity,
         description: description.trim() || undefined,
         photo_url: photoUrl || undefined,
       })
@@ -177,20 +196,22 @@ export default function RegistrarPage() {
 
       {/* PASSO 1 — Categoria */}
       {step === 'categoria' && (
-        <div>
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
           <p className="text-sm text-gray-500 mb-4">Qual é o tipo do problema?</p>
           {categories.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">Carregando categorias...</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-100 rounded-xl animate-pulse" />)}
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               {categories.map(cat => (
                 <button key={cat.id}
                   onClick={() => handleCategorySelect(cat)}
                   className="flex flex-col items-center gap-2 p-4 border rounded-xl
-                             hover:border-blue-500 hover:bg-blue-50 transition-all text-left">
+                             hover:border-blue-500 hover:bg-blue-50 transition-all text-left active:scale-95">
                   <span className="text-3xl">{cat.icon}</span>
                   <span className="text-sm font-medium text-center">{cat.name}</span>
-                  <span className="text-xs text-gray-400">SLA: {cat.sla_hours}h</span>
+                  <span className="text-[10px] text-gray-400 uppercase">SLA: {cat.sla_hours}h</span>
                 </button>
               ))}
             </div>
@@ -200,7 +221,7 @@ export default function RegistrarPage() {
 
       {/* PASSO 2 — Subcategoria */}
       {step === 'subcategoria' && (
-        <div>
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
           <p className="text-sm text-gray-500 mb-1">
             Categoria: <strong>{category?.name}</strong>
           </p>
@@ -210,16 +231,17 @@ export default function RegistrarPage() {
               <button key={sub.id}
                 onClick={() => { setSubcategory(sub); setStep('localizacao') }}
                 className={`flex flex-col items-center gap-2 p-4 border rounded-xl
-                           hover:border-blue-500 hover:bg-blue-50 transition-all
+                           hover:border-blue-500 hover:bg-blue-50 transition-all active:scale-95
                            ${subcategory?.id === sub.id ? 'border-blue-500 bg-blue-50' : ''}`}>
                 <span className="text-3xl">{sub.icon}</span>
                 <span className="text-sm font-medium text-center">{sub.name}</span>
+                <span className="text-[10px] text-gray-400 uppercase">SLA: {sub.sla_hours}h</span>
               </button>
             ))}
           </div>
           <button
             onClick={() => { setSubcategory(null); setStep('localizacao') }}
-            className="w-full mt-3 text-sm text-gray-400 hover:text-gray-600 py-2">
+            className="w-full mt-4 text-sm text-gray-400 hover:text-gray-600 py-2 border border-dashed rounded-xl">
             Nenhuma opção se encaixa →
           </button>
         </div>
@@ -227,15 +249,15 @@ export default function RegistrarPage() {
 
       {/* PASSO 3 — Localização */}
       {step === 'localizacao' && (
-        <div className="space-y-4">
+        <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
           <p className="text-sm text-gray-500">Onde está o problema?</p>
           <button
             onClick={useGPS}
             disabled={gpsLoading}
             className="w-full flex items-center justify-center gap-2 p-4
                        bg-blue-600 text-white rounded-xl font-medium
-                       disabled:opacity-60 transition">
-            {gpsLoading ? 'Obtendo localização...' : '📍 Usar minha localização (GPS)'}
+                       disabled:opacity-60 transition active:scale-95">
+            {gpsLoading ? 'Buscando sinal GPS...' : '📍 Usar minha localização atual'}
           </button>
 
           <div className="relative">
@@ -243,7 +265,7 @@ export default function RegistrarPage() {
               <div className="w-full border-t border-gray-200" />
             </div>
             <div className="relative flex justify-center">
-              <span className="bg-white px-3 text-sm text-gray-400">ou</span>
+              <span className="bg-white px-3 text-sm text-gray-400">ou digite o endereço</span>
             </div>
           </div>
 
@@ -253,7 +275,7 @@ export default function RegistrarPage() {
               value={addressInput}
               onChange={e => setAddressInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleAddressConfirm()}
-              placeholder="Ex: Rua das Flores, 120 — próx. ao mercado"
+              placeholder="Rua, número e ponto de referência"
               className="w-full border rounded-xl p-3 text-sm focus:outline-none
                          focus:ring-2 focus:ring-blue-300"
             />
@@ -270,15 +292,19 @@ export default function RegistrarPage() {
 
       {/* PASSO 4 — Detalhes opcionais */}
       {step === 'detalhes' && (
-        <div className="space-y-4">
+        <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
           <p className="text-sm text-gray-500">Detalhes adicionais (opcionais)</p>
+
+          <div className="bg-blue-50 p-3 rounded-xl text-[10px] text-blue-700 mb-2">
+            📍 {location?.address}
+          </div>
 
           <div>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
               maxLength={500}
-              placeholder="Descreva brevemente o problema..."
+              placeholder="Ex: O buraco é fundo e está acumulando água..."
               className="w-full border rounded-xl p-3 text-sm resize-none h-24
                          focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
@@ -286,10 +312,12 @@ export default function RegistrarPage() {
           </div>
 
           {!photoPreview ? (
-            <label className="flex items-center justify-center gap-2 p-4
+            <label className="flex flex-col items-center justify-center gap-2 p-6
                                border-2 border-dashed border-gray-300 rounded-xl cursor-pointer
                                hover:border-blue-400 hover:bg-blue-50 transition-all">
-              <span className="text-sm text-gray-500">📷 Anexar foto (opcional)</span>
+              <span className="text-3xl">📷</span>
+              <span className="text-sm text-gray-500 font-medium">Anexar foto do local</span>
+              <span className="text-[10px] text-gray-400">Ajuda a equipe técnica a identificar o problema</span>
               <input
                 type="file"
                 accept="image/*"
@@ -303,14 +331,15 @@ export default function RegistrarPage() {
               <img src={photoPreview} className="rounded-xl w-full h-44 object-cover" />
               <button
                 onClick={removePhoto}
-                className="absolute top-2 right-2 bg-white text-gray-600 text-xs
-                           px-2 py-1 rounded-lg border hover:bg-gray-50">
-                Remover
+                className="absolute top-2 right-2 bg-black/50 text-white text-xs
+                           px-3 py-1 rounded-full backdrop-blur-sm border border-white/20">
+                Remover foto
               </button>
               {!photoUrl && (
-                <div className="absolute inset-0 bg-white/60 flex items-center
-                                justify-center rounded-xl text-sm text-gray-500">
-                  Enviando foto...
+                <div className="absolute inset-0 bg-white/60 flex flex-col items-center
+                                justify-center rounded-xl text-sm text-gray-600">
+                  <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2" />
+                  Enviando imagem...
                 </div>
               )}
             </div>
@@ -318,48 +347,49 @@ export default function RegistrarPage() {
 
           <button
             onClick={() => setStep('confirmar')}
-            className="w-full bg-blue-600 text-white p-3 rounded-xl font-medium">
-            Continuar →
+            className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-100">
+            Revisar solicitação →
           </button>
         </div>
       )}
 
       {/* PASSO 5 — Confirmação */}
       {step === 'confirmar' && (
-        <div className="space-y-4">
-          <p className="text-sm text-gray-500 mb-2">Revise antes de enviar:</p>
+        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
+          <p className="text-sm text-gray-500 mb-2 font-medium">Tudo certo? Revise os dados:</p>
 
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3 text-sm border">
+          <div className="bg-white rounded-2xl p-4 space-y-4 text-sm border shadow-sm">
 
-            <div className="flex gap-3 items-start">
-              <span className="text-2xl">{subcategory?.icon ?? category?.icon}</span>
+            <div className="flex gap-4 items-center">
+              <span className="text-4xl bg-gray-50 p-2 rounded-xl border">
+                {subcategory?.icon ?? category?.icon}
+              </span>
               <div>
-                <p className="font-medium">{category?.name}</p>
+                <p className="font-bold text-gray-900">{category?.name}</p>
                 {subcategory && (
-                  <p className="text-gray-500 text-xs mt-0.5">{subcategory.name}</p>
+                  <p className="text-blue-600 text-xs font-medium">{subcategory.name}</p>
                 )}
-                <p className="text-xs text-gray-400 mt-0.5">
-                  SLA: {subcategory?.sla_hours ?? category?.sla_hours}h
+                <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider">
+                  Prazo: {subcategory?.sla_hours ?? category?.sla_hours} horas
                 </p>
               </div>
             </div>
 
-            <div className="border-t pt-3">
-              <p className="text-gray-500 text-xs mb-1">Localização</p>
-              <p>{location?.address}</p>
+            <div className="border-t pt-3 space-y-1">
+              <p className="text-gray-400 text-[10px] uppercase font-bold">Localização</p>
+              <p className="text-gray-700 leading-tight">{location?.address}</p>
             </div>
 
             {description && (
-              <div className="border-t pt-3">
-                <p className="text-gray-500 text-xs mb-1">Descrição</p>
-                <p className="text-gray-700">{description}</p>
+              <div className="border-t pt-3 space-y-1">
+                <p className="text-gray-400 text-[10px] uppercase font-bold">Sua descrição</p>
+                <p className="text-gray-700 italic">"{description}"</p>
               </div>
             )}
 
             {photoPreview && (
               <div className="border-t pt-3">
-                <p className="text-gray-500 text-xs mb-2">Foto</p>
-                <img src={photoPreview} className="rounded-lg h-28 object-cover w-full" />
+                <img src={photoPreview} className="rounded-xl h-32 object-cover w-full border" />
               </div>
             )}
           </div>
@@ -367,14 +397,14 @@ export default function RegistrarPage() {
           <button
             onClick={handleSubmit}
             disabled={loading || (!!photoPreview && !photoUrl)}
-            className="w-full bg-green-600 text-white p-4 rounded-xl font-medium text-base
-                       disabled:opacity-50 transition">
-            {loading ? 'Enviando...' : '✓ Enviar solicitação'}
+            className="w-full bg-green-600 text-white p-4 rounded-2xl font-bold text-lg
+                       shadow-lg shadow-green-100 disabled:opacity-50 transition active:scale-95">
+            {loading ? 'Enviando chamado...' : '✓ Confirmar e Enviar'}
           </button>
 
           {photoPreview && !photoUrl && (
-            <p className="text-xs text-center text-gray-400">
-              Aguardando upload da foto antes de enviar...
+            <p className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded-lg">
+              Aguarde o carregamento da foto para finalizar.
             </p>
           )}
         </div>
