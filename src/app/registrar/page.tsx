@@ -1,15 +1,24 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase'
 import { createReport, getCategories, getSubcategories } from '@/lib/reports'
 import type { Category } from '@/lib/supabase'
+
+// Carrega o seletor de mapa dinamicamente para evitar erros de SSR do Leaflet
+const SelectorMapa = dynamic(() => import('./SelectorMapa'), { 
+  ssr: false,
+  loading: () => <div className="h-72 w-full bg-slate-100 animate-pulse rounded-2xl" />
+})
 
 type Step = 'categoria' | 'subcategoria' | 'localizacao' | 'detalhes' | 'confirmar'
 
 const STEP_INDEX: Record<Step, number> = {
   categoria: 0, subcategoria: 1, localizacao: 2, detalhes: 3, confirmar: 4
 }
+
+const SERRA_NEGRA_CENTER = { lat: -22.6126, lng: -46.7012 }
 
 export default function RegistrarPage() {
   const router = useRouter()
@@ -18,8 +27,13 @@ export default function RegistrarPage() {
   const [subcategories, setSubcategories] = useState<Category[]>([])
   const [category, setCategory]       = useState<Category | null>(null)
   const [subcategory, setSubcategory] = useState<Category | null>(null)
+  
+  // Estados de Localização
+  const [tempCoords, setTempCoords]   = useState(SERRA_NEGRA_CENTER)
   const [location, setLocation]       = useState<{ lat: number; lng: number; address: string; city: string } | null>(null)
   const [addressInput, setAddressInput] = useState('')
+  const [suggestions, setSuggestions] = useState<any[]>([])
+  
   const [description, setDescription] = useState('')
   const [photoUrl, setPhotoUrl]       = useState<string | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
@@ -31,382 +45,228 @@ export default function RegistrarPage() {
     getCategories().then(setCategories).catch(() => setError('Erro ao carregar categorias'))
   }, [])
 
-  // Função para descobrir cidade e endereço via coordenadas (Gratuito)
+  // Autocomplete Logic com Debounce
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (addressInput.length > 3 && step === 'localizacao') {
+        try {
+          const query = `${addressInput}, Serra Negra, SP`
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`)
+          const data = await res.json()
+          setSuggestions(data)
+        } catch (e) { console.error(e) }
+      } else {
+        setSuggestions([])
+      }
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [addressInput, step])
+
   async function reverseGeocode(lat: number, lng: number) {
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
       const data = await res.json()
-      const city = data.address.city || data.address.town || data.address.village || 'Cidade não identificada'
-      const road = data.address.road || 'Endereço aproximado'
+      const city = data.address.city || data.address.town || data.address.village || 'Serra Negra'
+      const road = data.address.road || data.address.suburb || 'Localização selecionada'
       return { city, fullAddress: data.display_name || `${road}, ${city}` }
     } catch {
-      return { city: 'Não identificada', fullAddress: 'Localização via GPS' }
+      return { city: 'Serra Negra', fullAddress: 'Localização via Mapa' }
     }
   }
 
   async function handleCategorySelect(cat: Category) {
     setCategory(cat)
     setSubcategory(null)
-    setError(null)
     try {
       const subs = await getSubcategories(cat.id)
       if (subs && subs.length > 0) {
         setSubcategories(subs)
         setStep('subcategoria')
       } else {
-        setSubcategories([])
         setStep('localizacao')
       }
-    } catch {
-      setSubcategories([])
-      setStep('localizacao')
-    }
-  }
-
-  function getPrevStep(current: Step): Step {
-    if (current === 'subcategoria') return 'categoria'
-    if (current === 'localizacao')  return subcategories.length > 0 ? 'subcategoria' : 'categoria'
-    if (current === 'detalhes')     return 'localizacao'
-    if (current === 'confirmar')    return 'detalhes'
-    return 'categoria'
+    } catch { setStep('localizacao') }
   }
 
   async function useGPS() {
     setGpsLoading(true)
-    setError(null)
     navigator.geolocation.getCurrentPosition(
       async pos => {
-        const { latitude, longitude } = pos.coords
-        const geo = await reverseGeocode(latitude, longitude)
-        
-        setLocation({
-          lat: latitude,
-          lng: longitude,
-          address: geo.fullAddress,
-          city: geo.city
-        })
+        setTempCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
         setGpsLoading(false)
-        setStep('detalhes')
       },
       () => {
-        setError('Não foi possível obter o GPS. Digite o endereço manualmente.')
+        setError('GPS indisponível. Use a busca ou o mapa.')
         setGpsLoading(false)
-      },
-      { timeout: 10000, enableHighAccuracy: true }
+      }
     )
   }
 
-  function handleAddressConfirm() {
-    if (!addressInput.trim()) return
-    setLocation({ lat: 0, lng: 0, address: addressInput.trim(), city: '' })
+  async function handleConfirmLocation() {
+    setLoading(true)
+    const geo = await reverseGeocode(tempCoords.lat, tempCoords.lng)
+    setLocation({
+      lat: tempCoords.lat,
+      lng: tempCoords.lng,
+      address: geo.fullAddress,
+      city: geo.city
+    })
+    setLoading(false)
     setStep('detalhes')
   }
 
   async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Foto muito grande. Máximo 5 MB.')
-      return
-    }
-    setError(null)
-    const preview = URL.createObjectURL(file)
-    setPhotoPreview(preview)
+    if (file.size > 5 * 1024 * 1024) { setError('Máximo 5 MB.'); return }
+    setPhotoPreview(URL.createObjectURL(file))
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setError('Você precisa estar logado para anexar foto.'); return }
+      if (!user) throw new Error('Deslogado')
       const path = `${user.id}/${Date.now()}.jpg`
-      const { error: uploadError } = await supabase.storage
-        .from('report-photos')
-        .upload(path, file, { contentType: file.type, upsert: false })
-      if (uploadError) { setError('Erro ao enviar foto.'); return }
-      const { data: { publicUrl } } = supabase.storage
-        .from('report-photos')
-        .getPublicUrl(path)
+      await supabase.storage.from('report-photos').upload(path, file)
+      const { data: { publicUrl } } = supabase.storage.from('report-photos').getPublicUrl(path)
       setPhotoUrl(publicUrl)
-    } catch {
-      setError('Erro ao enviar foto.')
-    }
-  }
-
-  function removePhoto() {
-    setPhotoUrl(null)
-    setPhotoPreview(null)
+    } catch { setError('Erro no upload da foto.') }
   }
 
   async function handleSubmit() {
     if (!category || !location) return
     setLoading(true)
-    setError(null)
     try {
-      // Se o endereço foi manual, a cidade pode estar vazia
-      const finalCity = location.city || 'Botucatu' 
-
       const report = await createReport({
         category_id: subcategory?.id ?? category.id,
         lat: location.lat,
         lng: location.lng,
         address_hint: location.address,
-        city: finalCity,
+        city: location.city,
         description: description.trim() || undefined,
         photo_url: photoUrl || undefined,
       })
       router.push(`/solicitacao/${report.id}?nova=true`)
     } catch (e: any) {
-      setError(e.message ?? 'Erro ao enviar solicitação.')
+      setError(e.message ?? 'Erro ao enviar.')
       setLoading(false)
     }
   }
 
   const currentStepIndex = STEP_INDEX[step]
-  const totalSteps = 5
 
   return (
-    <main className="max-w-md mx-auto p-4 min-h-screen">
-
+    <main className="max-w-md mx-auto p-4 min-h-screen pb-20">
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
-        {step !== 'categoria' ? (
-          <button
-            onClick={() => setStep(getPrevStep(step))}
-            className="text-sm text-blue-600 hover:underline">
-            ← Voltar
-          </button>
-        ) : (
-          <a href="/" className="text-sm text-blue-600 hover:underline">← Início</a>
-        )}
-        <h1 className="text-lg font-semibold">Nova solicitação</h1>
+        <button onClick={() => setStep(prev => prev === 'categoria' ? 'categoria' : (subcategories.length > 0 && step === 'localizacao' ? 'subcategoria' : 'categoria'))} className="text-sm text-blue-600">
+          ← Voltar
+        </button>
+        <h1 className="text-lg font-bold">Nova solicitação</h1>
       </div>
 
-      {/* Barra de progresso */}
+      {/* Progress Bar */}
       <div className="flex gap-1 mb-6">
-        {Array.from({ length: totalSteps }).map((_, i) => (
-          <div key={i} className={`h-1 flex-1 rounded-full transition-all ${
-            i <= currentStepIndex ? 'bg-blue-500' : 'bg-gray-200'}`} />
+        {[0,1,2,3,4].map(i => (
+          <div key={i} className={`h-1 flex-1 rounded-full ${i <= currentStepIndex ? 'bg-blue-500' : 'bg-gray-200'}`} />
         ))}
       </div>
 
-      {/* Erro global */}
-      {error && (
-        <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded-xl mb-4 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="bg-red-50 text-red-700 p-3 rounded-xl mb-4 text-sm border border-red-100">{error}</div>}
 
-      {/* PASSO 1 — Categoria */}
+      {/* STEP 1: CATEGORIA */}
       {step === 'categoria' && (
-        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-          <p className="text-sm text-gray-500 mb-4">Qual é o tipo do problema?</p>
-          {categories.length === 0 ? (
-            <div className="grid grid-cols-2 gap-3">
-              {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-100 rounded-xl animate-pulse" />)}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {categories.map(cat => (
-                <button key={cat.id}
-                  onClick={() => handleCategorySelect(cat)}
-                  className="flex flex-col items-center gap-2 p-4 border rounded-xl
-                             hover:border-blue-500 hover:bg-blue-50 transition-all text-left active:scale-95">
-                  <span className="text-3xl">{cat.icon}</span>
-                  <span className="text-sm font-medium text-center">{cat.name}</span>
-                  <span className="text-[10px] text-gray-400 uppercase">SLA: {cat.sla_hours}h</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300 grid grid-cols-2 gap-3">
+          {categories.map(cat => (
+            <button key={cat.id} onClick={() => handleCategorySelect(cat)} className="flex flex-col items-center gap-2 p-4 border rounded-2xl hover:bg-blue-50 active:scale-95 transition-all">
+              <span className="text-3xl">{cat.icon}</span>
+              <span className="text-sm font-bold text-center">{cat.name}</span>
+            </button>
+          ))}
         </div>
       )}
 
-      {/* PASSO 2 — Subcategoria */}
+      {/* STEP 2: SUBCATEGORIA */}
       {step === 'subcategoria' && (
-        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-          <p className="text-sm text-gray-500 mb-1">
-            Categoria: <strong>{category?.name}</strong>
-          </p>
-          <p className="text-sm text-gray-500 mb-4">Qual é o problema específico?</p>
-          <div className="grid grid-cols-2 gap-3">
-            {subcategories.map(sub => (
-              <button key={sub.id}
-                onClick={() => { setSubcategory(sub); setStep('localizacao') }}
-                className={`flex flex-col items-center gap-2 p-4 border rounded-xl
-                           hover:border-blue-500 hover:bg-blue-50 transition-all active:scale-95
-                           ${subcategory?.id === sub.id ? 'border-blue-500 bg-blue-50' : ''}`}>
-                <span className="text-3xl">{sub.icon}</span>
-                <span className="text-sm font-medium text-center">{sub.name}</span>
-                <span className="text-[10px] text-gray-400 uppercase">SLA: {sub.sla_hours}h</span>
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => { setSubcategory(null); setStep('localizacao') }}
-            className="w-full mt-4 text-sm text-gray-400 hover:text-gray-600 py-2 border border-dashed rounded-xl">
-            Nenhuma opção se encaixa →
-          </button>
+        <div className="animate-in fade-in slide-in-from-right-4 duration-300 grid grid-cols-2 gap-3">
+          {subcategories.map(sub => (
+            <button key={sub.id} onClick={() => { setSubcategory(sub); setStep('localizacao') }} className="p-4 border rounded-2xl flex flex-col items-center gap-2 hover:bg-blue-50">
+              <span className="text-3xl">{sub.icon}</span>
+              <span className="text-sm font-bold text-center">{sub.name}</span>
+            </button>
+          ))}
         </div>
       )}
 
-      {/* PASSO 3 — Localização */}
+      {/* STEP 3: LOCALIZAÇÃO (MAPA + AUTOCOMPLETE) */}
       {step === 'localizacao' && (
         <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-          <p className="text-sm text-gray-500">Onde está o problema?</p>
-          <button
-            onClick={useGPS}
-            disabled={gpsLoading}
-            className="w-full flex items-center justify-center gap-2 p-4
-                       bg-blue-600 text-white rounded-xl font-medium
-                       disabled:opacity-60 transition active:scale-95">
-            {gpsLoading ? 'Buscando sinal GPS...' : '📍 Usar minha localização atual'}
-          </button>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200" />
-            </div>
-            <div className="relative flex justify-center">
-              <span className="bg-white px-3 text-sm text-gray-400">ou digite o endereço</span>
-            </div>
-          </div>
-
-          <div className="space-y-2">
+          <div className="relative z-[1001]">
             <input
               type="text"
               value={addressInput}
-              onChange={e => setAddressInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddressConfirm()}
-              placeholder="Rua, número e ponto de referência"
-              className="w-full border rounded-xl p-3 text-sm focus:outline-none
-                         focus:ring-2 focus:ring-blue-300"
+              onChange={(e) => setAddressInput(e.target.value)}
+              placeholder="Buscar rua ou bairro em Serra Negra..."
+              className="w-full border-2 border-slate-100 rounded-xl p-4 shadow-sm focus:border-blue-500 outline-none transition-all"
             />
-            <button
-              onClick={handleAddressConfirm}
-              disabled={!addressInput.trim()}
-              className="w-full border border-blue-500 text-blue-600 p-3 rounded-xl
-                         text-sm font-medium hover:bg-blue-50 disabled:opacity-40 transition">
-              Confirmar endereço →
+            {suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 bg-white border rounded-2xl mt-2 shadow-xl overflow-hidden">
+                {suggestions.map((s, i) => (
+                  <button key={i} onClick={() => {
+                    setTempCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
+                    setSuggestions([]);
+                    setAddressInput(s.display_name.split(',')[0]);
+                  }} className="w-full text-left px-4 py-3 text-sm hover:bg-blue-50 border-b last:border-0 border-slate-50 truncate">
+                    📍 {s.display_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <SelectorMapa position={[tempCoords.lat, tempCoords.lng]} onChange={(lat, lng) => setTempCoords({ lat, lng })} />
+
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={useGPS} className="bg-slate-100 text-slate-700 p-4 rounded-2xl text-xs font-bold active:scale-95 transition">
+              {gpsLoading ? '...' : '🎯 Meu GPS'}
+            </button>
+            <button onClick={handleConfirmLocation} disabled={loading} className="bg-blue-600 text-white p-4 rounded-2xl text-xs font-bold shadow-lg active:scale-95 transition">
+              Confirmar Local →
             </button>
           </div>
         </div>
       )}
 
-      {/* PASSO 4 — Detalhes opcionais */}
+      {/* STEP 4: DETALHES */}
       {step === 'detalhes' && (
         <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-          <p className="text-sm text-gray-500">Detalhes adicionais (opcionais)</p>
+          <div className="bg-blue-50 p-3 rounded-xl text-[10px] text-blue-700 font-medium">📍 {location?.address}</div>
+          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Descreva o problema aqui..." className="w-full border-2 border-slate-100 rounded-2xl p-4 h-32 outline-none focus:border-blue-500" />
+          
+          <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition-all">
+            {photoPreview ? <img src={photoPreview} className="h-32 rounded-lg object-cover" /> : <span className="text-sm text-slate-500 font-bold">📷 Anexar Foto</span>}
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhoto} />
+          </label>
 
-          <div className="bg-blue-50 p-3 rounded-xl text-[10px] text-blue-700 mb-2">
-            📍 {location?.address}
-          </div>
-
-          <div>
-            <textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              maxLength={500}
-              placeholder="Ex: O buraco é fundo e está acumulando água..."
-              className="w-full border rounded-xl p-3 text-sm resize-none h-24
-                         focus:outline-none focus:ring-2 focus:ring-blue-300"
-            />
-            <p className="text-xs text-gray-400 text-right mt-1">{description.length}/500</p>
-          </div>
-
-          {!photoPreview ? (
-            <label className="flex flex-col items-center justify-center gap-2 p-6
-                               border-2 border-dashed border-gray-300 rounded-xl cursor-pointer
-                               hover:border-blue-400 hover:bg-blue-50 transition-all">
-              <span className="text-3xl">📷</span>
-              <span className="text-sm text-gray-500 font-medium">Anexar foto do local</span>
-              <span className="text-[10px] text-gray-400">Ajuda a equipe técnica a identificar o problema</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handlePhoto}
-              />
-            </label>
-          ) : (
-            <div className="relative">
-              <img src={photoPreview} className="rounded-xl w-full h-44 object-cover" />
-              <button
-                onClick={removePhoto}
-                className="absolute top-2 right-2 bg-black/50 text-white text-xs
-                           px-3 py-1 rounded-full backdrop-blur-sm border border-white/20">
-                Remover foto
-              </button>
-              {!photoUrl && (
-                <div className="absolute inset-0 bg-white/60 flex flex-col items-center
-                                justify-center rounded-xl text-sm text-gray-600">
-                  <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2" />
-                  Enviando imagem...
-                </div>
-              )}
-            </div>
-          )}
-
-          <button
-            onClick={() => setStep('confirmar')}
-            className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold shadow-lg shadow-blue-100">
-            Revisar solicitação →
-          </button>
+          <button onClick={() => setStep('confirmar')} className="w-full bg-blue-600 text-white p-4 rounded-2xl font-bold shadow-lg">Continuar para Revisão →</button>
         </div>
       )}
 
-      {/* PASSO 5 — Confirmação */}
+      {/* STEP 5: CONFIRMAÇÃO */}
       {step === 'confirmar' && (
-        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
-          <p className="text-sm text-gray-500 mb-2 font-medium">Tudo certo? Revise os dados:</p>
-
-          <div className="bg-white rounded-2xl p-4 space-y-4 text-sm border shadow-sm">
-
+        <div className="space-y-4 animate-in zoom-in-95 duration-300">
+          <div className="bg-white rounded-3xl p-6 space-y-4 border shadow-sm">
             <div className="flex gap-4 items-center">
-              <span className="text-4xl bg-gray-50 p-2 rounded-xl border">
-                {subcategory?.icon ?? category?.icon}
-              </span>
+              <span className="text-4xl bg-slate-50 p-2 rounded-2xl border">{subcategory?.icon ?? category?.icon}</span>
               <div>
-                <p className="font-bold text-gray-900">{category?.name}</p>
-                {subcategory && (
-                  <p className="text-blue-600 text-xs font-medium">{subcategory.name}</p>
-                )}
-                <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider">
-                  Prazo: {subcategory?.sla_hours ?? category?.sla_hours} horas
-                </p>
+                <p className="font-bold text-slate-900">{category?.name}</p>
+                <p className="text-blue-600 text-xs font-bold">{subcategory?.name ?? 'Geral'}</p>
               </div>
             </div>
-
-            <div className="border-t pt-3 space-y-1">
-              <p className="text-gray-400 text-[10px] uppercase font-bold">Localização</p>
-              <p className="text-gray-700 leading-tight">{location?.address}</p>
-            </div>
-
-            {description && (
-              <div className="border-t pt-3 space-y-1">
-                <p className="text-gray-400 text-[10px] uppercase font-bold">Sua descrição</p>
-                <p className="text-gray-700 italic">"{description}"</p>
-              </div>
-            )}
-
-            {photoPreview && (
-              <div className="border-t pt-3">
-                <img src={photoPreview} className="rounded-xl h-32 object-cover w-full border" />
-              </div>
-            )}
+            <div className="border-t pt-3"><p className="text-slate-400 text-[10px] font-bold uppercase">Localização</p><p className="text-slate-700 text-sm leading-tight">{location?.address}</p></div>
+            {photoPreview && <img src={photoPreview} className="rounded-2xl h-40 w-full object-cover border" />}
           </div>
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading || (!!photoPreview && !photoUrl)}
-            className="w-full bg-green-600 text-white p-4 rounded-2xl font-bold text-lg
-                       shadow-lg shadow-green-100 disabled:opacity-50 transition active:scale-95">
-            {loading ? 'Enviando chamado...' : '✓ Confirmar e Enviar'}
+          <button onClick={handleSubmit} disabled={loading} className="w-full bg-green-600 text-white p-5 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition">
+            {loading ? 'Enviando...' : '✓ Confirmar e Enviar'}
           </button>
-
-          {photoPreview && !photoUrl && (
-            <p className="text-xs text-center text-amber-600 bg-amber-50 p-2 rounded-lg">
-              Aguarde o carregamento da foto para finalizar.
-            </p>
-          )}
         </div>
       )}
     </main>
