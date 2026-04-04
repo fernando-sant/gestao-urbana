@@ -1,262 +1,269 @@
 'use client'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase'
 import { createReport, getCategories, getSubcategories } from '@/lib/reports'
 import type { Category } from '@/lib/supabase'
 
+// Carregamento Seguro do Mapa (Client-side only)
 const SelectorMapa = dynamic(() => import('./SelectorMapa'), { 
   ssr: false,
   loading: () => <div className="h-72 w-full bg-slate-100 animate-pulse rounded-2xl" />
 })
 
 type Step = 'categoria' | 'subcategoria' | 'localizacao' | 'detalhes' | 'confirmar'
-const STEP_ORDER: Step[] = ['categoria','subcategoria','localizacao','detalhes','confirmar']
-
-const SERRA_NEGRA_CENTER = { lat: -22.6126, lng: -46.7012 }
+const STEP_ORDER: Step[] = ['categoria', 'subcategoria', 'localizacao', 'detalhes', 'confirmar']
 
 export default function RegistrarPage() {
   const router = useRouter()
-
   const [step, setStep] = useState<Step>('categoria')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Estados de Dados
   const [categories, setCategories] = useState<Category[]>([])
   const [subcategories, setSubcategories] = useState<Category[]>([])
   const [category, setCategory] = useState<Category | null>(null)
   const [subcategory, setSubcategory] = useState<Category | null>(null)
-
-  const [tempCoords, setTempCoords] = useState(SERRA_NEGRA_CENTER)
-  const [location, setLocation] = useState<any>(null)
-
+  
+  // Estados de Localização (Serra Negra Default)
+  const [coords, setCoords] = useState({ lat: -22.6126, lng: -46.7012 })
   const [addressInput, setAddressInput] = useState('')
   const [suggestions, setSuggestions] = useState<any[]>([])
+  const [finalLocation, setFinalLocation] = useState<{address: string, city: string} | null>(null)
 
+  // Estados de Conteúdo
   const [description, setDescription] = useState('')
   const [photoUrl, setPhotoUrl] = useState<string | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
 
-  const [loading, setLoading] = useState(false)
-  const [gpsLoading, setGpsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
+  // 1. Carregamento Inicial
   useEffect(() => {
     getCategories().then(setCategories)
   }, [])
 
-  // GPS automático ao entrar no step
+  // 2. Auto-GPS ao chegar no Step de Localização (Melhoria UX)
   useEffect(() => {
     if (step === 'localizacao') {
       navigator.geolocation.getCurrentPosition(
-        pos => {
-          setTempCoords({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude
-          })
-        },
-        () => {}
+        pos => setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => console.log("GPS negado, usando padrão"),
+        { enableHighAccuracy: true }
       )
     }
   }, [step])
 
-  // Autocomplete inteligente
+  // 3. Autocomplete com Debounce e Bias Geográfico
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (addressInput.length > 3 && step === 'localizacao') {
-        const query = `${addressInput}, Serra Negra, São Paulo`
+      if (addressInput.length > 3 && step === 'localizacao' && !finalLocation) {
+        const query = `${addressInput}, Serra Negra, SP`
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&viewbox=${coords.lng-0.1},${coords.lat+0.1},${coords.lng+0.1},${coords.lat-0.1}&bounded=1`
         )
         const data = await res.json()
         setSuggestions(data)
-      } else {
-        setSuggestions([])
       }
     }, 600)
-
     return () => clearTimeout(timer)
-  }, [addressInput, step])
+  }, [addressInput, step, coords, finalLocation])
 
-  async function reverseGeocode(lat: number, lng: number) {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
-    )
-    const data = await res.json()
-    return {
-      city: data.address.city || 'Serra Negra',
-      address: data.display_name
-    }
-  }
+  // 4. Reverse Geocode ao mover o mapa
+  const updateAddressFromCoords = useCallback(async (lat: number, lng: number) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+      const data = await res.json()
+      setAddressInput(data.display_name.split(',')[0] + ', ' + (data.address.suburb || ''))
+    } catch (e) { console.error(e) }
+  }, [])
 
-  async function handleCategorySelect(cat: Category) {
-    navigator.vibrate?.(10)
-    setCategory(cat)
-
-    const subs = await getSubcategories(cat.id)
-    if (subs?.length) {
-      setSubcategories(subs)
-      setStep('subcategoria')
-    } else {
-      setStep('localizacao')
-    }
-  }
-
-  function goBack() {
-    const i = STEP_ORDER.indexOf(step)
-    if (i > 0) setStep(STEP_ORDER[i - 1])
-  }
-
-  async function handleConfirmLocation() {
-    setLoading(true)
-    const geo = await reverseGeocode(tempCoords.lat, tempCoords.lng)
-    setLocation({
-      ...tempCoords,
-      address: geo.address,
-      city: geo.city
-    })
-    setLoading(false)
-    setStep('detalhes')
-  }
-
-  async function compressImage(file: File) {
-    const bitmap = await createImageBitmap(file)
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')!
-
-    const MAX = 1200
-    let { width, height } = bitmap
-
-    if (width > MAX) {
-      height *= MAX / width
-      width = MAX
-    }
-
-    canvas.width = width
-    canvas.height = height
-    ctx.drawImage(bitmap, 0, 0)
-
-    return new Promise<Blob>(resolve =>
-      canvas.toBlob(blob => resolve(blob!), 'image/jpeg', 0.7)
-    )
-  }
-
-  async function handlePhoto(e: any) {
+  // 5. Compressão de Imagem (Melhoria Performance)
+  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-
+    
     setPhotoPreview(URL.createObjectURL(file))
-
-    const compressed = await compressImage(file)
-
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    const path = `${user?.id}/${Date.now()}.jpg`
-    await supabase.storage.from('report-photos').upload(path, compressed)
-
-    const { data } = supabase.storage.from('report-photos').getPublicUrl(path)
-    setPhotoUrl(data.publicUrl)
-  }
-
-  async function handleSubmit() {
     setLoading(true)
 
-    const report = await createReport({
-      category_id: subcategory?.id ?? category!.id,
-      lat: location.lat,
-      lng: location.lng,
-      address_hint: location.address,
-      city: location.city,
-      description,
-      photo_url: photoUrl || undefined
-    })
+    try {
+      // Compressão simples usando Canvas
+      const bitmap = await createImageBitmap(file)
+      const canvas = document.createElement('canvas')
+      const MAX_SIZE = 1024
+      let { width, height } = bitmap
+      if (width > height && width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE }
+      else if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE }
+      
+      canvas.width = width; canvas.height = height
+      canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height)
+      
+      const blob = await new Promise<Blob>(res => canvas.toBlob(b => res(b!), 'image/jpeg', 0.8))
+      
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      const path = `${user?.id}/${Date.now()}.jpg`
+      
+      const { error: upErr } = await supabase.storage.from('report-photos').upload(path, blob)
+      if (upErr) throw upErr
+      
+      const { data: { publicUrl } } = supabase.storage.from('report-photos').getPublicUrl(path)
+      setPhotoUrl(publicUrl)
+    } catch (err) { setError("Erro ao processar foto.") } 
+    finally { setLoading(false) }
+  }
 
-    router.push(`/solicitacao/${report.id}?nova=true`)
+  // Navegação robusta
+  const goBack = () => {
+    const idx = STEP_ORDER.indexOf(step)
+    if (idx === 0) router.push('/')
+    else setStep(STEP_ORDER[idx - 1])
+  }
+
+  const handleConfirmLocation = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.lat}&lon=${coords.lng}`)
+      const data = await res.json()
+      setFinalLocation({
+        address: data.display_name,
+        city: data.address.city || data.address.town || 'Serra Negra'
+      })
+      setStep('detalhes')
+    } finally { setLoading(false) }
+  }
+
+  const handleSubmit = async () => {
+    if (!category || !finalLocation) return
+    setLoading(true)
+    try {
+      const report = await createReport({
+        category_id: subcategory?.id ?? category.id,
+        lat: coords.lat,
+        lng: coords.lng,
+        address_hint: finalLocation.address,
+        city: finalLocation.city,
+        description: description.trim(),
+        photo_url: photoUrl || undefined,
+      })
+      router.push(`/solicitacao/${report.id}?nova=true`)
+    } catch (e) { setError("Erro ao enviar."); setLoading(false) }
   }
 
   return (
-    <main className="max-w-md mx-auto p-4 pb-20">
-      
-      {/* Header */}
-      <div className="flex gap-3 mb-5">
-        <button onClick={goBack} className="text-blue-600 text-sm">← Voltar</button>
-        <h1 className="font-bold">Nova solicitação</h1>
-      </div>
+    <main className="max-w-md mx-auto p-4 min-h-screen bg-white">
+      {/* Header com Progresso */}
+      <header className="mb-6">
+        <button onClick={goBack} className="text-blue-600 font-bold text-sm mb-4">← Voltar</button>
+        <div className="flex gap-1">
+          {STEP_ORDER.map((s, i) => (
+            <div key={s} className={`h-1.5 flex-1 rounded-full transition-all ${i <= STEP_ORDER.indexOf(step) ? 'bg-blue-600' : 'bg-slate-100'}`} />
+          ))}
+        </div>
+      </header>
 
-      {error && <div className="text-red-500 text-sm mb-4">{error}</div>}
+      {error && <div className="p-4 bg-red-50 text-red-700 rounded-2xl mb-4 text-sm font-medium border border-red-100">{error}</div>}
 
-      {/* CATEGORIA */}
+      {/* STEP 1: CATEGORIA */}
       {step === 'categoria' && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="animate-in fade-in slide-in-from-bottom-4 grid grid-cols-2 gap-3">
           {categories.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => handleCategorySelect(cat)}
-              className="p-4 border rounded-2xl active:scale-95 transition"
-            >
-              <div className="text-3xl">{cat.icon}</div>
-              <div className="text-sm font-bold">{cat.name}</div>
+            <button key={cat.id} onClick={() => { setCategory(cat); getSubcategories(cat.id).then(subs => subs?.length ? setStep('subcategoria') : setStep('localizacao')) }}
+              className="p-6 border-2 border-slate-50 rounded-3xl flex flex-col items-center gap-3 active:scale-95 transition-transform hover:bg-blue-50">
+              <span className="text-4xl">{cat.icon}</span>
+              <span className="text-sm font-bold text-slate-800">{cat.name}</span>
             </button>
           ))}
         </div>
       )}
 
-      {/* LOCALIZAÇÃO */}
+      {/* STEP 3: LOCALIZAÇÃO (O Coração do App) */}
       {step === 'localizacao' && (
-        <div className="space-y-4">
-          <input
-            value={addressInput}
-            onChange={e => setAddressInput(e.target.value)}
-            placeholder="Buscar endereço..."
-            className="w-full p-4 border rounded-xl"
+        <div className="space-y-4 animate-in fade-in">
+          <div className="relative z-[1001]">
+            <input 
+              type="text" 
+              value={addressInput} 
+              onChange={e => { setAddressInput(e.target.value); setFinalLocation(null); }}
+              placeholder="Aponte no mapa ou digite aqui..."
+              className="w-full p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700"
+            />
+            {suggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 bg-white shadow-2xl rounded-2xl mt-2 overflow-hidden border">
+                {suggestions.map((s, i) => (
+                  <button key={i} onClick={() => { setCoords({lat: parseFloat(s.lat), lng: parseFloat(s.lon)}); setSuggestions([]); setAddressInput(s.display_name.split(',')[0]) }}
+                    className="w-full p-4 text-left text-sm hover:bg-blue-50 border-b last:border-0 border-slate-50 truncate font-medium">
+                    📍 {s.display_name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <SelectorMapa 
+            position={[coords.lat, coords.lng]} 
+            onChange={(lat: number, lng: number) => { setCoords({lat, lng}); updateAddressFromCoords(lat, lng); }} 
           />
 
-          <SelectorMapa
-            position={[tempCoords.lat, tempCoords.lng]}
-            onChange={(lat: number, lng: number) => setTempCoords({ lat, lng })}
-          />
-
-          <button
-            onClick={handleConfirmLocation}
-            className="w-full bg-blue-600 text-white p-4 rounded-xl"
-          >
-            Este é o local do problema
+          <button onClick={handleConfirmLocation} disabled={loading}
+            className="w-full p-5 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-100 active:scale-95 transition-all">
+            {loading ? "Processando..." : "Confirmar este local →"}
           </button>
         </div>
       )}
 
-      {/* DETALHES */}
+      {/* STEP 4: DETALHES */}
       {step === 'detalhes' && (
-        <div className="space-y-4">
-          <textarea
-            placeholder="Descreva o problema"
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            className="w-full p-4 border rounded-xl"
+        <div className="space-y-4 animate-in slide-in-from-right-4">
+          <div className="p-4 bg-blue-50 rounded-2xl text-xs font-bold text-blue-700">📍 {finalLocation?.address}</div>
+          
+          <textarea value={description} onChange={e => setDescription(e.target.value)} 
+            placeholder="O que está acontecendo? (opcional)"
+            className="w-full p-4 bg-slate-50 rounded-2xl h-32 border-none focus:ring-2 focus:ring-blue-500 outline-none"
           />
 
-          <input type="file" onChange={handlePhoto} />
+          <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:bg-slate-50 transition-all">
+            {photoPreview ? (
+              <img src={photoPreview} className="h-40 rounded-2xl object-cover shadow-lg" />
+            ) : (
+              <>
+                <span className="text-4xl mb-2">📸</span>
+                <span className="text-sm font-bold text-slate-500">Adicionar uma foto</span>
+                <span className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest font-black">Ajuda muito na análise</span>
+              </>
+            )}
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhoto} />
+          </label>
 
-          <button
-            onClick={() => setStep('confirmar')}
-            className="w-full bg-blue-600 text-white p-4 rounded-xl"
-          >
+          <button onClick={() => setStep('confirmar')} className="w-full p-5 bg-blue-600 text-white rounded-2xl font-black shadow-xl">
             Revisar antes de enviar →
           </button>
         </div>
       )}
 
-      {/* CONFIRMAR */}
+      {/* STEP 5: CONFIRMAÇÃO (Fechamento) */}
       {step === 'confirmar' && (
-        <div className="space-y-4">
-          <div>{category?.name}</div>
-          <div>{location?.address}</div>
+        <div className="space-y-4 animate-in zoom-in-95">
+          <div className="bg-white border rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex gap-4 items-center">
+              <span className="text-5xl bg-slate-50 p-3 rounded-2xl">{subcategory?.icon ?? category?.icon}</span>
+              <div>
+                <p className="font-black text-xl text-slate-900 leading-tight">{category?.name}</p>
+                <p className="text-blue-600 font-bold text-sm">{subcategory?.name ?? 'Geral'}</p>
+              </div>
+            </div>
+            <div className="border-t pt-4">
+              <p className="text-[10px] uppercase font-black text-slate-400 mb-1">Localização Selecionada</p>
+              <p className="text-slate-700 font-medium text-sm leading-snug">{finalLocation?.address}</p>
+            </div>
+            {photoPreview && <img src={photoPreview} className="w-full h-48 rounded-2xl object-cover border" />}
+          </div>
 
-          <button
-            onClick={handleSubmit}
-            className="w-full bg-green-600 text-white p-4 rounded-xl"
-          >
-            Confirmar e enviar
+          <p className="text-center text-xs text-slate-400 px-6">Ao enviar, sua solicitação será encaminhada para a equipe de gestão urbana da prefeitura.</p>
+
+          <button onClick={handleSubmit} disabled={loading}
+            className="w-full p-6 bg-green-600 text-white rounded-3xl font-black text-xl shadow-2xl shadow-green-100 active:scale-95 transition-all">
+            {loading ? "Enviando..." : "✓ Confirmar e Enviar"}
           </button>
         </div>
       )}
