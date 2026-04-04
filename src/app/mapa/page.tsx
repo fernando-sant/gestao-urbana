@@ -1,12 +1,6 @@
 import { createClient } from '@/lib/supabase'
-import dynamic from 'next/dynamic'
 import Link from 'next/link'
-
-// ESTA É A CHAVE: Carregamento dinâmico desativando o SSR
-const MapaClient = dynamic(() => import('./MapaClient'), { 
-  ssr: false,
-  loading: () => <div className="h-full w-full bg-slate-100 animate-pulse flex items-center justify-center">Carregando mapa...</div>
-})
+import MapaLoader from './MapaLoader' // Importamos o novo Loader
 
 export default async function MapaPage() {
   const supabase = createClient()
@@ -31,13 +25,19 @@ export default async function MapaPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col">
-      <div className="bg-white border-b px-6 py-4 flex justify-between items-center">
-        <h1 className="text-xl font-bold text-slate-900 tracking-tight">Mapa de Ocorrências</h1>
-        <Link href="/" className="text-sm text-blue-600 font-medium">← Voltar</Link>
+      <div className="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm z-10">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Mapa de Ocorrências</h1>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Serra Negra - SP</p>
+        </div>
+        <Link href="/" className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-colors">
+          ← Voltar
+        </Link>
       </div>
 
       <div className="flex-1 relative">
-        <MapaClient reports={mapReports} />
+        {/* Usamos o Loader aqui */}
+        <MapaLoader reports={mapReports} />
       </div>
     </main>
   )
