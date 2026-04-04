@@ -1,4 +1,4 @@
-// src/app/mapa/MapaClient.tsx  ← Client Component (carrega Leaflet)
+// src/app/mapa/MapaClient.tsx
 'use client'
 import dynamic from 'next/dynamic'
 
