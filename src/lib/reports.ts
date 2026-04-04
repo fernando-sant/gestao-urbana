@@ -19,18 +19,21 @@ export async function getCategories() {
 /**
  * 2. Busca subcategorias de um pai específico
  */
+
 export async function getSubcategories(parentId: string) {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('categories')
     .select('*')
-    .eq('parent_id', parentId)
-    .eq('is_active', true)
+    .eq('parent_id', parentId) // Verifique se no banco o nome é 'parent_id'
     .order('name')
-  if (error) throw error
-  return data || []
-}
 
+  if (error) {
+    console.error("Erro Supabase:", error)
+    return []
+  }
+  return data
+}
 /**
  * 3. Cria uma nova solicitação
  */
