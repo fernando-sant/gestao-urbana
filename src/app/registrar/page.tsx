@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase'
 import { getCategories, getSubcategories, createReport } from '@/lib/reports'
 import type { Category } from '@/lib/supabase'
-
+import 'leaflet/dist/leaflet.css';
 const SelectorMapa = dynamic(() => import('./SelectorMapa'), { 
   ssr: false,
   loading: () => <div className="h-full w-full bg-slate-100 animate-pulse flex items-center justify-center text-slate-400">Carregando mapa...</div>
@@ -153,10 +153,13 @@ export default function RegistrarPage() {
               </div>
               <div className="flex-1 min-h-[300px] rounded-[2.5rem] overflow-hidden border-4 border-white shadow-2xl relative">
                 <SelectorMapa 
-                  position={[coords.lat, coords.lng]} 
+                  position={{ lat: coords.lat, lng: coords.lng }} // <--- Mude de [ ] para { } 
                   onChange={(lat: number, lng: number) => { setCoords({lat, lng}); updateAddressFromCoords(lat, lng); }} 
                 />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[100%] z-[1000] pointer-events-none">
+                <div 
+  className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[90%] pointer-events-none"
+  style={{ zIndex: 1000 }} // Garante que fique acima de tudo
+>
                     <span className="text-5xl drop-shadow-2xl">📍</span>
                 </div>
               </div>
