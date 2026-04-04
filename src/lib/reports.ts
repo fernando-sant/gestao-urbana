@@ -13,6 +13,18 @@ export async function getCategories() {
   return data
 }
 
+export async function getSubcategories(parentId: string) {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('categories')
+    .select('*')
+    .eq('parent_id', parentId)
+    .eq('is_active', true)
+    .order('name')
+  if (error) throw error
+  return data
+}
+
 export async function createReport(payload: {
   category_id: string
   lat: number
