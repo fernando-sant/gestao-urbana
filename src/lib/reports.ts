@@ -71,7 +71,7 @@ export async function createReport(payload: {
 }
 
 /**
- * 4. Lista solicitações do usuário logado (usada na /solicitacoes)
+ * 4. Lista solicitações do usuário logado (usada na /solicitacao)
  */
 export async function getUserReports() {
   const supabase = createClient()

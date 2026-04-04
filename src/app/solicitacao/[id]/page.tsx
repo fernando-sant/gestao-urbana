@@ -19,7 +19,7 @@ export default function DetalhePage() {
   useEffect(() => {
     getReportDetails(id as string)
       .then(setReport)
-      .catch(() => router.push('/solicitacoes'))
+      .catch(() => router.push('/solicitacao'))
   }, [id])
 
   if (!report) return <div className="p-10 text-center animate-pulse">Carregando detalhes...</div>
@@ -41,7 +41,7 @@ export default function DetalhePage() {
       )}
 
       <div className="flex items-center justify-between mb-4">
-        <button onClick={() => router.push('/solicitacoes')} className="text-blue-600 text-sm">
+        <button onClick={() => router.push('/solicitacao')} className="text-blue-600 text-sm">
           ← Ver todas
         </button>
         <span className="text-[10px] font-mono text-gray-400 bg-gray-100 px-2 py-1 rounded">

@@ -10,7 +10,7 @@ const STATUS_CONFIG: Record<string, { label: string, color: string }> = {
   rejected:    { label: 'Arquivado',   color: 'bg-gray-100 text-gray-700' },
 }
 
-export default function MinhasSolicitacoes() {
+export default function Minhassolicitacao() {
   const [reports, setReports] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
