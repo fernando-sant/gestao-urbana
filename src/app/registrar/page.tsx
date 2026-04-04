@@ -213,7 +213,7 @@ export default function RegistrarPage() {
 
           <SelectorMapa
             position={[tempCoords.lat, tempCoords.lng]}
-            onChange={(lat, lng) => setTempCoords({ lat, lng })}
+            onChange={(lat: number, lng: number) => setTempCoords({ lat, lng })}
           />
 
           <button
