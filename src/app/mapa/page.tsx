@@ -13,16 +13,18 @@ export default async function MapaPage() {
   }
 
   // Agora os dados já vêm formatados da RPC, não precisa de mapeamento complexo
-  const mapReports = (reports || []).map((r: any) => ({
+  const mapReports = (reports || [])
+  .map((r: any) => ({
     id: r.id,
     protocol: r.protocol,
-    lat: r.lat,
-    lng: r.lng,
+    lat: Number(r.lat),
+    lng: Number(r.lng),
     category_name: r.category_name,
     category_icon: r.category_icon,
     address_hint: r.address_hint,
     status: r.status,
   }))
+  .filter((r: any) => !isNaN(r.lat) && !isNaN(r.lng))
 
   return (
     <main className="min-h-screen flex flex-col">
