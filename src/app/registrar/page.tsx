@@ -12,8 +12,14 @@ import { createClient } from '@/lib/supabase'
 import { getCategories, getSubcategories, createReport } from '@/lib/reports'
 import type { Category } from '@/lib/supabase'
 import dynamic from 'next/dynamic'
+import type { SelectorMapaRef } from './SelectorMapa'
 
-const SelectorMapa = dynamic(() => import('./SelectorMapa'), { ssr: false })
+// Adicione junto aos outros refs, dentro do componente
+const mapRef = useRef<SelectorMapaRef>(null)
+const SelectorMapa = dynamic(() => import('./SelectorMapa'), { 
+  ssr: false,
+  loading: () => <div className="h-72 bg-slate-100 animate-pulse rounded-2xl" />
+});
 
 // ─── Tipos estritos ────────────────────────────────────────────────────────
 
@@ -273,19 +279,19 @@ export default function RegistrarPage() {
     setError(null)
     navigator.geolocation.getCurrentPosition(
       pos => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        // Atualiza o estado de localização
         setForm(prev => ({
           ...prev,
-          location: {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            address: 'Localização atual (GPS)',
-          },
+          location: { lat, lng, address: `${lat.toFixed(5)}, ${lng.toFixed(5)}` },
         }))
+        // Voa até a posição no mapa
+        mapRef.current?.flyTo(lat, lng)
         setGpsLoading(false)
-        goTo('detalhes')
+        // Não avança de passo — usuário confirma depois de ajustar o pin
       },
       () => {
-        setError('Não foi possível obter o GPS. Use o mapa ou digite o endereço.')
+        setError('Não foi possível obter o GPS. Mova o pin manualmente.')
         setGpsLoading(false)
       },
       { timeout: 10000 }
@@ -496,93 +502,53 @@ export default function RegistrarPage() {
 
               {/* ── PASSO 3: Localização ───────────────────────────────── */}
               {step === 'localizacao' && (
-                <div className="pt-2 space-y-3">
-                  <p className="text-sm text-slate-500">Onde está o problema?</p>
+  <div className="pt-2 space-y-3">
+    <p className="text-sm text-slate-500">
+      Onde está o problema?{' '}
+      <span className="text-slate-400">Mova o mapa para ajustar.</span>
+    </p>
 
-                  {/* GPS */}
-                  <button
-                    onClick={handleGPS}
-                    disabled={gpsLoading}
-                    className="w-full flex items-center justify-center gap-2 p-4
-                               bg-gradient-to-r from-blue-600 to-indigo-700
-                               text-white rounded-2xl font-medium shadow-sm
-                               hover:shadow-lg active:scale-[0.98] disabled:opacity-60
-                               transition-all">
-                    {gpsLoading
-                      ? <Loader2 size={18} className="animate-spin" />
-                      : <Navigation size={18} />}
-                    {gpsLoading ? 'Obtendo localização...' : 'Usar minha localização (GPS)'}
-                  </button>
+    {/* GPS */}
+    <button
+      onClick={handleGPS}
+      disabled={gpsLoading}
+      className="w-full flex items-center justify-center gap-2 p-3
+                 border border-slate-200 rounded-2xl text-sm text-slate-600
+                 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-60
+                 transition-all">
+      {gpsLoading
+        ? <Loader2 size={16} className="animate-spin" />
+        : <Navigation size={16} className="text-blue-600" />}
+      {gpsLoading ? 'Obtendo GPS...' : 'Centralizar no meu GPS'}
+    </button>
 
-                  <div className="relative flex items-center gap-3">
-                    <div className="flex-1 h-px bg-slate-200" />
-                    <span className="text-xs text-slate-400">ou</span>
-                    <div className="flex-1 h-px bg-slate-200" />
-                  </div>
+    {/* Mapa — sempre visível */}
+    <SelectorMapa
+      ref={mapRef}
+      initialLocation={{ lat: -22.1197, lng: -46.7003 }}
+      onSelect={handleMapSelect}
+    />
 
-                  {/* Toggle mapa / endereço */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setUseMap(false)}
-                      className={`flex-1 py-2.5 text-sm rounded-2xl border transition-all
-                                 ${!useMap
-                                   ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
-                                   : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                      Digitar endereço
-                    </button>
-                    <button
-                      onClick={() => setUseMap(true)}
-                      className={`flex-1 py-2.5 text-sm rounded-2xl border transition-all
-                                 ${useMap
-                                   ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
-                                   : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                      Usar mapa
-                    </button>
-                  </div>
+    {/* Coordenadas atuais */}
+    {form.location && (
+      <p className="text-xs text-slate-400 text-center tabular-nums">
+        {form.location.lat.toFixed(5)}, {form.location.lng.toFixed(5)}
+      </p>
+    )}
 
-                  {!useMap ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={addressInput}
-                        onChange={e => setAddressInput(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleAddressConfirm()}
-                        placeholder="Ex: Rua das Flores, 120 — próx. ao mercado"
-                        className="w-full border border-slate-200 rounded-2xl px-4 py-3
-                                   text-sm focus:outline-none focus:ring-2 focus:ring-blue-300
-                                   bg-slate-50 placeholder:text-slate-400"
-                      />
-                      <button
-                        onClick={handleAddressConfirm}
-                        disabled={!addressInput.trim()}
-                        className="w-full border border-blue-500 text-blue-600 py-3
-                                   rounded-2xl text-sm font-medium hover:bg-blue-50
-                                   active:scale-[0.98] disabled:opacity-40 transition-all">
-                        Confirmar endereço →
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <SelectorMapa onSelect={handleMapSelect} />
-                      {form.location && (
-                        <p className="text-xs text-slate-400 text-center">
-                          {form.location.address}
-                        </p>
-                      )}
-                      <button
-                        onClick={confirmMapLocation}
-                        disabled={!form.location}
-                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-700
-                                   text-white py-3 rounded-2xl text-sm font-medium shadow-sm
-                                   hover:shadow-lg active:scale-[0.98] disabled:opacity-40
-                                   transition-all flex items-center justify-center gap-2">
-                        <MapPin size={16} />
-                        Confirmar local no mapa
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+    {/* Confirmar */}
+    <button
+      onClick={() => goTo('detalhes')}
+      disabled={!form.location}
+      className="w-full bg-gradient-to-r from-blue-600 to-indigo-700
+                 text-white py-4 rounded-2xl font-medium shadow-sm
+                 hover:shadow-lg active:scale-[0.98] disabled:opacity-40
+                 transition-all flex items-center justify-center gap-2">
+      <MapPin size={16} />
+      Confirmar localização
+    </button>
+  </div>
+)}
 
               {/* ── PASSO 4: Detalhes ──────────────────────────────────── */}
               {step === 'detalhes' && (
