@@ -32,8 +32,6 @@ const SelectorMapaDynamic = nextDynamic(() => import('./SelectorMapa'), {
 
 const SelectorMapa = SelectorMapaDynamic as unknown as typeof import('./SelectorMapa').default
 
-const mapaRef = useRef<SelectorMapaRef>(null);
-
 // ─── Tipos estritos ────────────────────────────────────────────────────────
 
 type Step = 'categoria' | 'subcategoria' | 'localizacao' | 'detalhes' | 'confirmar'
@@ -217,7 +215,7 @@ export default function RegistrarPage() {
   const [addressInput, setAddressInput]     = useState('')
   const [useMap, setUseMap]                 = useState(false)
   const prevStepRef = useRef<Step>('categoria')
-
+  const mapaRef = useRef<SelectorMapaRef>(null) // ✅ aqui dentro
   // Visibilidade dos steps na barra de progresso
   const visibleSteps: Step[] = form.subcategory !== null || subcategories.length > 0
     ? STEPS
