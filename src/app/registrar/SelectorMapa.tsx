@@ -18,7 +18,7 @@ interface SelectorMapaProps {
 
 const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
   ({ initialLocation, onSelect }, ref) => {
-    const mapRef      = useRef<HTMLDivElement>(null)
+    const mapaRef      = useRef<HTMLDivElement>(null)
     const mapInstance = useRef<any>(null)
 
     // Centro padrão: Serra Negra – SP
@@ -42,11 +42,11 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
     }))
 
     useEffect(() => {
-      if (!mapRef.current || mapInstance.current) return
+      if (!mapaRef.current || mapInstance.current) return
       let cancelled = false
 
       import('leaflet').then((L) => {
-        if (cancelled || !mapRef.current || mapInstance.current) return
+        if (cancelled || !mapaRef.current || mapInstance.current) return
 
         delete (L.Icon.Default.prototype as any)._getIconUrl
         L.Icon.Default.mergeOptions({
@@ -55,7 +55,7 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
           shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
         })
 
-        const map = L.map(mapRef.current!, {
+        const map = L.map(mapaRef.current!, {
           center: [center.lat, center.lng],
           zoom: 15,
           zoomControl: true,
@@ -67,7 +67,7 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
 
         const ro = new ResizeObserver(() => map.invalidateSize())
-        ro.observe(mapRef.current!)
+        ro.observe(mapaRef.current!)
 
         map.on('moveend', () => handleMapMove(map))
         map.on('zoomend', () => handleMapMove(map))
@@ -89,7 +89,7 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
       <div className="relative w-full h-72 rounded-2xl overflow-hidden border border-slate-200">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-        <div ref={mapRef} className="w-full h-full" />
+        <div ref={mapaRef} className="w-full h-full" />
 
         {/* Pin fixo no centro */}
         <div

@@ -15,11 +15,11 @@ import dynamic from 'next/dynamic'
 import type { SelectorMapaRef } from './SelectorMapa'
 
 // Adicione junto aos outros refs, dentro do componente
-const mapRef = useRef<SelectorMapaRef>(null)
 const SelectorMapa = dynamic(() => import('./SelectorMapa'), { 
   ssr: false,
   loading: () => <div className="h-72 bg-slate-100 animate-pulse rounded-2xl" />
 });
+const mapaRef = useRef<SelectorMapaRef>(null);
 
 // ─── Tipos estritos ────────────────────────────────────────────────────────
 
@@ -286,7 +286,7 @@ export default function RegistrarPage() {
           location: { lat, lng, address: `${lat.toFixed(5)}, ${lng.toFixed(5)}` },
         }))
         // Voa até a posição no mapa
-        mapRef.current?.flyTo(lat, lng)
+        mapaRef.current?.flyTo(lat, lng)
         setGpsLoading(false)
         // Não avança de passo — usuário confirma depois de ajustar o pin
       },
@@ -524,7 +524,7 @@ export default function RegistrarPage() {
 
     {/* Mapa — sempre visível */}
     <SelectorMapa
-      ref={mapRef}
+      ref={mapaRef}
       initialLocation={{ lat: -22.1197, lng: -46.7003 }}
       onSelect={handleMapSelect}
     />
