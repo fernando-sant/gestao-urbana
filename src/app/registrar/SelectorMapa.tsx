@@ -1,72 +1,118 @@
 'use client'
-import { useEffect } from 'react'
-import { MapContainer, TileLayer, useMapEvents, useMap } from 'react-leaflet'
-import 'leaflet/dist/leaflet.css'
+import { useEffect, useRef, useCallback } from 'react'
 
-// 1. Componente para forçar o mapa a ocupar 100% da tela após carregar
-function MapResizer() {
-  const map = useMap()
-  useEffect(() => {
-    setTimeout(() => {
-      map.invalidateSize()
-    }, 100)
-  }, [map])
-  return null
-}
-
-// 2. Componente para capturar o movimento do mapa
-function MapEvents({ onChange }: { onChange: (lat: number, lng: number) => void }) {
-  useMapEvents({
-    moveend: (e) => {
-      const center = e.target.getCenter()
-      onChange(center.lat, center.lng)
-    },
-  })
-  return null
+interface Location {
+  lat: number
+  lng: number
+  address: string
 }
 
 interface SelectorMapaProps {
-  position: { lat: number; lng: number }
-  onChange: (lat: number, lng: number) => void
+  initialLocation?: Location
+  onSelect: (loc: Location) => void
 }
 
-export default function SelectorMapa({ position, onChange }: SelectorMapaProps) {
+export default function SelectorMapa({ initialLocation, onSelect }: SelectorMapaProps) {
+  const mapRef      = useRef<HTMLDivElement>(null)
+  const mapInstance = useRef<any>(null)
+  const markerRef   = useRef<any>(null)
+
+  const DEFAULT_CENTER = { lat: -22.885, lng: -48.446 }
+
+  const handleMapMove = useCallback((map: any) => {
+    const center = map.getCenter()
+    onSelect({
+      lat: center.lat,
+      lng: center.lng,
+      address: `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`,
+    })
+  }, [onSelect])
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return
+
+    let cancelled = false
+
+    import('leaflet').then((L) => {
+      if (cancelled || !mapRef.current || mapInstance.current) return
+
+      // Fix ícone padrão do Leaflet no Next.js
+      delete (L.Icon.Default.prototype as any)._getIconUrl
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      })
+
+      const center = initialLocation ?? DEFAULT_CENTER
+      const map = L.map(mapRef.current!, {
+        center: [center.lat, center.lng],
+        zoom: 15,
+        zoomControl: true,
+        attributionControl: false,
+      })
+
+      mapInstance.current = map
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+
+      // MapResizer — resolve problema de tiles não carregando
+      const ro = new ResizeObserver(() => {
+        map.invalidateSize()
+      })
+      ro.observe(mapRef.current!)
+
+      map.on('moveend', () => handleMapMove(map))
+      map.on('zoomend', () => handleMapMove(map))
+
+      // Dispara o primeiro evento para inicializar o estado
+      handleMapMove(map)
+    })
+
+    return () => {
+      cancelled = true
+      if (mapInstance.current) {
+        mapInstance.current.remove()
+        mapInstance.current = null
+      }
+    }
+  }, [])
+
   return (
-    /* O "relative" aqui é o segredo para o Pin e o Botão flutuarem */
-    <div className="relative w-full h-full min-h-[300px] rounded-2xl overflow-hidden border-2 border-white shadow-md">
-      
-      <MapContainer 
-        center={[position.lat, position.lng]} 
-        zoom={16} 
-        scrollWheelZoom={true}
-        style={{ height: '100%', width: '100%', zIndex: 1 }}
-      >
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        <MapResizer />
-        <MapEvents onChange={onChange} />
-      </MapContainer>
+    <div className="relative w-full h-64 rounded-2xl overflow-hidden border border-slate-200">
+      {/* CSS do Leaflet via link — evita problema de SSR */}
+      <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      />
 
-      {/* PIN CENTRAL: Agora fora do MapContainer para não ser "esmagado" pelo Leaflet */}
-      <div 
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full pointer-events-none"
-        style={{ zIndex: 1000 }} 
-      >
-        <span className="text-5xl drop-shadow-2xl">📍</span>
-      </div>
+      {/* Mapa */}
+      <div ref={mapRef} className="w-full h-full" />
 
-      {/* BOTÃO GPS */}
-      <button
-        type="button"
-        onClick={() => {
-          navigator.geolocation.getCurrentPosition(pos => {
-            onChange(pos.coords.latitude, pos.coords.longitude)
-          })
-        }}
-        className="absolute top-4 right-4 bg-white p-3 rounded-2xl shadow-xl active:scale-95 transition-transform"
+      {/* Pin fixo no centro — acima de todos os layers do Leaflet */}
+      <div
+        className="pointer-events-none absolute inset-0 flex items-center justify-center"
         style={{ zIndex: 1000 }}
       >
-        <span className="text-xl">🎯</span>
-      </button>
+        <div className="flex flex-col items-center" style={{ marginTop: '-28px' }}>
+          <div className="w-8 h-8 rounded-full bg-blue-600 border-4 border-white shadow-lg
+                          flex items-center justify-center">
+            <div className="w-2 h-2 rounded-full bg-white" />
+          </div>
+          {/* Sombra do pin no chão */}
+          <div className="w-3 h-1.5 rounded-full bg-black/20 mt-0.5" />
+        </div>
+      </div>
+
+      {/* Label de instrução */}
+      <div
+        className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2
+                   bg-white/90 backdrop-blur-sm text-xs text-slate-600
+                   px-3 py-1.5 rounded-full shadow-sm whitespace-nowrap"
+        style={{ zIndex: 1000 }}
+      >
+        Arraste o mapa para posicionar
+      </div>
     </div>
   )
 }
