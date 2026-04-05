@@ -1,24 +1,37 @@
 'use client'
+export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { AnimatePresence, motion } from 'framer-motion'
-import type { Transition } from 'framer-motion'
+import { AnimatePresence, motion, type Transition } from 'framer-motion'
 import {
   MapPin, Camera, ChevronRight, ChevronLeft,
   CheckCircle2, Loader2, X, AlertCircle, Navigation
 } from 'lucide-react'
+import nextDynamic from 'next/dynamic'
 import { createClient } from '@/lib/supabase'
 import { getCategories, getSubcategories, createReport } from '@/lib/reports'
 import type { Category } from '@/lib/supabase'
-import dynamic from 'next/dynamic'
 import type { SelectorMapaRef } from './SelectorMapa'
+import type { ForwardRefExoticComponent, RefAttributes } from 'react'
 
-// Adicione junto aos outros refs, dentro do componente
-const SelectorMapa = dynamic(() => import('./SelectorMapa'), { 
+type SelectorMapaProps = {
+  initialLocation?: { lat: number; lng: number }
+  onSelect: (loc: { lat: number; lng: number; address: string }) => void
+}
+
+const SelectorMapaDynamic = nextDynamic(() => import('./SelectorMapa'), {
   ssr: false,
-  loading: () => <div className="h-72 bg-slate-100 animate-pulse rounded-2xl" />
-});
+  loading: () => (
+    <div className="w-full h-72 rounded-2xl bg-slate-100 animate-pulse
+                    flex items-center justify-center">
+      <span className="text-sm text-slate-400">Carregando mapa...</span>
+    </div>
+  ),
+})
+
+const SelectorMapa = SelectorMapaDynamic as unknown as typeof import('./SelectorMapa').default
+
 const mapaRef = useRef<SelectorMapaRef>(null);
 
 // ─── Tipos estritos ────────────────────────────────────────────────────────

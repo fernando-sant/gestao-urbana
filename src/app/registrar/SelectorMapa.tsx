@@ -21,7 +21,6 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
     const mapaRef      = useRef<HTMLDivElement>(null)
     const mapInstance = useRef<any>(null)
 
-    // Centro padrão: Serra Negra – SP
     const DEFAULT_CENTER = { lat: -22.1197, lng: -46.7003 }
     const center = initialLocation ?? DEFAULT_CENTER
 
@@ -34,7 +33,6 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
       })
     }, [onSelect])
 
-    // Expõe flyTo para o componente pai
     useImperativeHandle(ref, () => ({
       flyTo(lat: number, lng: number) {
         mapInstance.current?.flyTo([lat, lng], 17, { duration: 1.2 })
@@ -63,7 +61,6 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
         })
 
         mapInstance.current = map
-
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
 
         const ro = new ResizeObserver(() => map.invalidateSize())
@@ -71,8 +68,6 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
 
         map.on('moveend', () => handleMapMove(map))
         map.on('zoomend', () => handleMapMove(map))
-
-        // Estado inicial
         handleMapMove(map)
       })
 
@@ -88,7 +83,6 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
     return (
       <div className="relative w-full h-72 rounded-2xl overflow-hidden border border-slate-200">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
         <div ref={mapaRef} className="w-full h-full" />
 
         {/* Pin fixo no centro */}
@@ -105,7 +99,6 @@ const SelectorMapa = forwardRef<SelectorMapaRef, SelectorMapaProps>(
           </div>
         </div>
 
-        {/* Instrução */}
         <div
           className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2
                      bg-white/90 backdrop-blur-sm text-xs text-slate-600
